@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Vinyl Vault</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- IndexedDB wrapper (simplified) -->
+<script>
+const DB = {
+  db: null,
+  async init() {
+    this.db = await new Promise((r, j) => {
+      const req = indexedDB.open('vinylVault', 1);
+      req.onupgradeneeded = e => {
+        const s = e.target.result.createObjectStore('records', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('discogs_id', 'discogs_id', { unique: true });
+        s.createIndex('artist', 'artist', { unique: false });
+        s.createIndex('status', 'status', { unique: false });
+      };
+      req.onsuccess = e => r(e.target.result);
+      req.onerror = e => j(e.target.error);
+    });
+  },
+  all() { return new Promise((r, j) => {
+    const tx = this.db.transaction('records', 'readonly');
+    const store = tx.objectStore('records');
+    const req = store.getAll();
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  }); },
+  put(rec) { return new Promise((r, j) => {
+    const tx = this.db.transaction('records', 'readwrite');
+    const store = tx.objectStore('records');
+    const req = store.put(rec);
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  }); },
+  del(id) { return new Promise((r, j) => {
+    const tx = this.db.transaction('records', 'readwrite');
+    const store = tx.objectStore('records');
+    const req = store.delete(id);
+    req.onsuccess = () => r();
+    req.onerror = () => j(req.error);
+  }); }
+};
+</script>
+
+<style>
+:root{--bg:#f3f4f6;--s1:#fff;--s2:#f9fafb;--s3:#d1d5db;--s4:#cbd5e1;
+--s5:#9ca3af;--s6:#6b7280;--t1:#111827;--t2:#374151;--red:#dc2626;
+--border:#d1d5db;--s2b:rgba(255,255,255,0.7);}
+body{font-family:sans-serif;margin:0;background:var(--bg);color:var(--t1);}
+a{color:inherit;text-decoration:none;}
+button{cursor:pointer;user-select:none;}
+header{padding:10px;background:var(--s2);display:flex;justify-content:space-between;
+align-items:center;border-bottom:1px solid var(--border);font-weight:600;}
+nav{display:flex;gap:8px;}
+nav button{background:transparent;border:0;color:var(--t2);}
+nav button.active{color:var(--t1);border-bottom:2px solid var(--t1);}
+main{padding:10px;}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+.row .card{flex:1 0 48%;background:var(--s1);border:1px solid var(--border);
+border-radius:8px;padding:10px;}
+.row .card .title{font-weight:600;margin-top:4px;}
+.row .card .info{font-size:12px;color:var(--t2);}
+.row .card .price{font-size:13px;font-weight:600;margin-top:4px;}
+.row .card .genre{font-size:12px;color:var(--t2);margin-top:2px;}
+.modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);
+display:flex;justify-content:center;align-items:center;}
+.modal .content{background:var(--s1);padding:20px;border-radius:12px;
+max-width:400px;width:90%;max-height:90%;overflow:auto;}
+@media (min-width:600px){.row .card{flex:1 0 30%;}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Vinyl Vault</h1>
+  <nav>
+    <button id="nav-all" onclick="app.showAll()">All</button>
+    <button id="nav-active" onclick="app.showActive()">Active</button>
+    <button id="nav-sold" onclick="app.showSold()">Sold</button>
+  </nav>
+</header>
+<main id="content">Loading…</main>
+<div id="modal" class="modal" style="display:none;">
+  <div class="content" id="modal-content"></div>
+</div>
+<script>
+const app = {
+  init() { this.load(); },
+  load() {
+    DB.all().then(recs=>{ this.records=recs; this.showAll(); });
+  },
+  showAll() { this.showByStatus('all'); },
+  showActive() { this.showByStatus('active'); },
+  showSold() { this.showByStatus('sold'); },
+  showByStatus(status) {
+    const recs = this.records.filter(r=>status==='all'?true:r.status===status);
+    const cards = recs.map(r=>`<div class="card" onclick="app.showDetail('${r.id}')">
+      <div class="title">${r.artist} – ${r.title}</div>
+      <div class="info">Status: ${r.status}</div>
+      <div class="price">${r.sell_price?`$${r.sell_price}`:'—'}</div>
+      <div class="genre">${(r.genres||[]).join(', ')}</div>
+    </div>`);
+    document.getElementById('content').innerHTML=cards.join('');
+  },
+  showDetail(id) {
+    const rec = this.records.find(r=>r.id===id);
+    document.getElementById('modal-content').innerHTML=`
+      <h2>${rec.artist} – ${rec.title}</h2>
+      <p>Status: ${rec.status}</p>
+      <p>Price: $${rec.sell_price}</p>
+      <button onclick="app.del('${rec.id}')">Delete</button>`;
+    document.getElementById('modal').style.display='flex';
+  },
+  del(id) { if(confirm('Delete?')) { DB.del(id).then(()=>{this.load(); document.getElementById('modal').style.display='none';}); } },
+  clearAll() { if(confirm('Clear all?')) { DB.all().then(rec=>Promise.all(rec.map(r=>DB.del(r.id)))).then(()=>{this.load();}); } }
+};
+app.init();
+</script>
+</body>
+</html>
